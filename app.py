@@ -16,7 +16,7 @@ B2_KEY_ID = os.environ.get("B2_KEY_ID", "")
 B2_APPLICATION_KEY = os.environ.get("B2_APPLICATION_KEY", "")
 
 # B2 configuration
-B2_BUCKET = "VScreen"
+B2_BUCKET = "medical-tourism"
 B2_ENDPOINT = "https://s3.eu-central-003.backblazeb2.com"
 B2_REGION = "eu-central-003"
 B2_APK_KEY = "downloads/app.apk"
