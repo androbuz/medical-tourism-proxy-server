@@ -1,0 +1,4 @@
+Flask
+gradio_client
+gunicorn
+boto3
