@@ -1,7 +1,6 @@
 import os
 import tempfile
-
-from flask import Flask, request, jsonify, redirect
+from flask import Flask, request, jsonify, send_file
 from gradio_client import Client, handle_file
 import boto3
 
@@ -21,6 +20,9 @@ B2_ENDPOINT = "https://s3.eu-central-003.backblazeb2.com"
 B2_REGION = "eu-central-003"
 B2_APK_KEY = "downloads/app.apk"
 
+# Local cache path for the APK file
+LOCAL_APK_PATH = os.path.join(tempfile.gettempdir(), "app_cached.apk")
+
 # S3 client
 s3 = boto3.client(
     "s3",
@@ -37,6 +39,12 @@ client = Client(
     verbose=False
 )
 
+def download_apk_from_b2():
+    """Helper function to download the latest APK from B2 to the local cache."""
+    print("Downloading APK from B2 to cache...")
+    s3.download_file(B2_BUCKET, B2_APK_KEY, LOCAL_APK_PATH)
+    print("APK cached successfully.")
+
 # health route
 @app.route("/health", methods=["GET"])
 def health():
@@ -47,7 +55,6 @@ def health():
 # prediction route pointing to hugging face
 @app.route("/predict", methods=["POST"])
 def predict():
-    # The medical tourism server expects an image and a question_type
     file = request.files.get("image")
     question_type = request.form.get("question_type", "general")
 
@@ -74,7 +81,6 @@ def predict():
             temp_path = temp_file.name
             file.save(temp_path)
 
-        # Call the HF space predict endpoint with both image and question_type
         result = client.predict(
             image=handle_file(temp_path),
             question_type=question_type,
@@ -94,7 +100,6 @@ def predict():
 
     except Exception as e:
         print(f"Prediction error: {e}")
-
         return jsonify({
             "success": False,
             "error": str(e)
@@ -104,19 +109,40 @@ def predict():
         if temp_path and os.path.exists(temp_path):
             os.remove(temp_path)
 
-# download apk route directing to B2
+# download cached apk route
 @app.route("/download", methods=["GET"])
 def download():
-    url = s3.generate_presigned_url(
-        "get_object",
-        Params={
-            "Bucket": B2_BUCKET,
-            "Key": B2_APK_KEY,
-        },
-        ExpiresIn=300,
-    )
-    return redirect(url)
+    try:
+        # If not cached yet, download it once
+        if not os.path.exists(LOCAL_APK_PATH):
+            download_apk_from_b2()
+            
+        return send_file(
+            LOCAL_APK_PATH,
+            mimetype="application/vnd.android.package-archive",
+            as_attachment=True,
+            download_name="app.apk"
+        )
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Failed to serve APK: {str(e)}"
+        }), 500
 
+# endpoint to trigger a fresh download/reload of the APK
+@app.route("/reload-apk", methods=["GET", "POST"])
+def reload_apk():
+    try:
+        download_apk_from_b2()
+        return jsonify({
+            "success": True,
+            "message": "APK cache successfully updated from B2."
+        })
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": f"Failed to update cache: {str(e)}"
+        }), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
